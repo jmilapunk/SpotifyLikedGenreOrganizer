@@ -54,7 +54,6 @@ fun DataScreen(accessToken: String) {
         } else if (errorMessage.isNotEmpty()) {
             Text(text = errorMessage)
         } else {
-            // Muestra la lista de categorías y agrega un botón para crear playlist en cada categoría
             CategoryList(accessToken, categories)
         }
     }
@@ -76,12 +75,15 @@ fun CategoryList(accessToken: String, categories: Map<String, List<Track>>) {
                 )
                 Button(
                     onClick = {
-                        // Lanza una coroutine para crear la playlist para este género.
-                        // Se asume que el modelo Track incluye "track_id" para construir el URI.
                         CoroutineScope(Dispatchers.IO).launch {
                             val userId = obtenerUserId(accessToken)
                             if (userId != null) {
+                                tracks.forEach {
+                                    Log.d("CategoryList", "Track ID: ${it.track_id}")
+                                }
                                 val trackUris = tracks.map { "spotify:track:${it.track_id}" }
+                                Log.d("CategoryList", "URIs generadas para $genero: $trackUris")
+                                // Llama a la función para crear la playlist y agregar las canciones
                                 val exito = crearPlaylistPorGenero(accessToken, userId, genero, trackUris)
                                 Log.d("CategoryList", "Playlist para $genero creada: $exito")
                             } else {
@@ -109,7 +111,6 @@ fun TrackItem(track: Track) {
     }
 }
 
-// Función para obtener el user_id mediante una llamada a la API de Spotify (usando OkHttp)
 suspend fun obtenerUserId(accessToken: String): String? {
     try {
         val client = OkHttpClient()
@@ -129,7 +130,9 @@ suspend fun obtenerUserId(accessToken: String): String? {
     return null
 }
 
-// Función para crear una playlist por género y agregarle las canciones
+/**
+ * Crea la playlist y agrega las canciones en bloques (chunk) para no exceder el límite.
+ */
 suspend fun crearPlaylistPorGenero(
     accessToken: String,
     userId: String,
@@ -143,19 +146,28 @@ suspend fun crearPlaylistPorGenero(
         public = true
     )
     val playlistResponse = RetrofitClientSpotify.instance.crearPlaylist(userId, authHeader, playlistRequest)
-    return if (playlistResponse.isSuccessful) {
-        val playlistId = playlistResponse.body()?.id
-        if (playlistId != null) {
-            val addResponse = RetrofitClientSpotify.instance.agregarCanciones(
-                playlistId,
-                authHeader,
-                AddTracksRequest(trackUris)
-            )
-            addResponse.isSuccessful
-        } else {
-            false
-        }
-    } else {
-        false
+    if (!playlistResponse.isSuccessful) {
+        Log.e("crearPlaylistPorGenero", "Error creando playlist: ${playlistResponse.errorBody()?.string()}")
+        return false
     }
+    val playlistId = playlistResponse.body()?.id
+    if (playlistId == null) {
+        Log.e("crearPlaylistPorGenero", "Playlist creada, pero no se obtuvo el ID")
+        return false
+    }
+
+    // Spotify permite agregar hasta 100 tracks por petición.
+    val chunks = trackUris.chunked(100)
+    for (chunk in chunks) {
+        val addResponse = RetrofitClientSpotify.instance.agregarCanciones(
+            playlistId,
+            authHeader,
+            AddTracksRequest(chunk)
+        )
+        if (!addResponse.isSuccessful) {
+            Log.e("crearPlaylistPorGenero", "Error agregando canciones: ${addResponse.errorBody()?.string()}")
+            return false
+        }
+    }
+    return true
 }

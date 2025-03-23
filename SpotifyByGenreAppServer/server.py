@@ -64,12 +64,13 @@ def liked_songs_genres():
     liked_tracks = []
     all_artist_ids = set()
 
-    # 2. Extraer IDs de TODOS los artistas de cada pista
+    # 2. Extraer IDs de TODOS los artistas de cada pista y agregar track_id
     for item in all_tracks:
         track_info = item["track"]
         artist_ids = [artist["id"] for artist in track_info["artists"]]
         all_artist_ids.update(artist_ids)
         liked_tracks.append({
+            "track_id": track_info["id"],  # Se agrega el track_id
             "track_name": track_info["name"],
             "artist_names": [artist["name"] for artist in track_info["artists"]],
             "artist_ids": artist_ids,
