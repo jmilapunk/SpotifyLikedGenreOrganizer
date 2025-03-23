@@ -29,12 +29,13 @@ fun DataScreen(accessToken: String) {
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf("") }
 
+    // Se obtiene la data desde el backend
     LaunchedEffect(accessToken) {
         try {
             val response = RetrofitClient.instance.getLikedSongsGenres(accessToken)
             if (response.isSuccessful) {
                 categories = response.body() ?: emptyMap()
-                Log.d("DataScreen", "Categorías recibidas:")
+                // Logging para ver qué categorías se reciben
                 categories.forEach { (categoria, tracks) ->
                     Log.d("DataScreen", "$categoria: ${tracks.size} tracks")
                 }
@@ -48,13 +49,43 @@ fun DataScreen(accessToken: String) {
         }
     }
 
+    // Se organiza la UI en dos secciones: botones en la parte superior y lista de tracks abajo
     Column {
         if (isLoading) {
             Text(text = "Cargando...")
         } else if (errorMessage.isNotEmpty()) {
             Text(text = errorMessage)
         } else {
+            // Sección de botones para cada género
+            CategoryButtons(accessToken, categories)
+            // Sección de listado de tracks por categoría
             CategoryList(accessToken, categories)
+        }
+    }
+}
+
+@Composable
+fun CategoryButtons(accessToken: String, categories: Map<String, List<Track>>) {
+    Column {
+        categories.forEach { (genero, tracks) ->
+            Button(
+                onClick = {
+                    // Se crea la playlist al pulsar el botón (en una corrutina IO)
+                    CoroutineScope(Dispatchers.IO).launch {
+                        val userId = obtenerUserId(accessToken)
+                        if (userId != null) {
+                            val trackUris = tracks.map { "spotify:track:${it.track_id}" }
+                            val exito = crearPlaylistPorGenero(accessToken, userId, genero, trackUris)
+                            Log.d("CategoryButtons", "Playlist para $genero creada: $exito")
+                        } else {
+                            Log.e("CategoryButtons", "No se pudo obtener el userId")
+                        }
+                    }
+                },
+                modifier = Modifier.padding(8.dp)
+            ) {
+                Text(text = "Crear Playlist para $genero")
+            }
         }
     }
 }
@@ -69,32 +100,6 @@ fun CategoryList(accessToken: String, categories: Map<String, List<Track>>) {
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp)
                 )
-                Text(
-                    text = "Cantidad de tracks: ${tracks.size}",
-                    modifier = Modifier.padding(horizontal = 8.dp)
-                )
-                Button(
-                    onClick = {
-                        CoroutineScope(Dispatchers.IO).launch {
-                            val userId = obtenerUserId(accessToken)
-                            if (userId != null) {
-                                tracks.forEach {
-                                    Log.d("CategoryList", "Track ID: ${it.track_id}")
-                                }
-                                val trackUris = tracks.map { "spotify:track:${it.track_id}" }
-                                Log.d("CategoryList", "URIs generadas para $genero: $trackUris")
-                                // Llama a la función para crear la playlist y agregar las canciones
-                                val exito = crearPlaylistPorGenero(accessToken, userId, genero, trackUris)
-                                Log.d("CategoryList", "Playlist para $genero creada: $exito")
-                            } else {
-                                Log.e("CategoryList", "No se pudo obtener el userId")
-                            }
-                        }
-                    },
-                    modifier = Modifier.padding(8.dp)
-                ) {
-                    Text(text = "Crear Playlist para $genero")
-                }
             }
             items(tracks) { track ->
                 TrackItem(track)
@@ -111,6 +116,9 @@ fun TrackItem(track: Track) {
     }
 }
 
+/**
+ * Función para obtener el userId del usuario logueado en Spotify.
+ */
 suspend fun obtenerUserId(accessToken: String): String? {
     try {
         val client = OkHttpClient()
@@ -131,7 +139,7 @@ suspend fun obtenerUserId(accessToken: String): String? {
 }
 
 /**
- * Crea la playlist y agrega las canciones en bloques (chunk) para no exceder el límite.
+ * Función para crear la playlist de un género y agregarle las canciones (en bloques de hasta 100).
  */
 suspend fun crearPlaylistPorGenero(
     accessToken: String,
