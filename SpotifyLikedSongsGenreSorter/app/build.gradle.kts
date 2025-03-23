@@ -66,4 +66,10 @@ dependencies {
 
     // Para abrir URLs en Chrome Custom Tabs
     implementation("androidx.browser:browser:1.5.0")
+
+    // Agrega la librería de Spotify App Remote (archivo .aar en /app/libs/)
+    implementation(files("libs/spotify-app-remote-release-0.8.0.aar"))
+
+    implementation("com.squareup.okhttp3:okhttp:4.9.3")
+
 }

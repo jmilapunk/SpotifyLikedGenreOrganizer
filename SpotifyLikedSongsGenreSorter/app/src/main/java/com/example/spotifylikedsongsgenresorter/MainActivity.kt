@@ -1,102 +1,123 @@
 package com.example.spotifylikedsongsgenresorter
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.lifecycle.lifecycleScope
-import com.example.spotifylikedsongsgenresorter.api.RetrofitClient
+import com.example.spotifylikedsongsgenresorter.UserInterface.DataScreen
+import com.example.spotifylikedsongsgenresorter.UserInterface.LoginScreen
+import com.example.spotifylikedsongsgenresorter.util.generateCodeChallenge
+import com.example.spotifylikedsongsgenresorter.util.generateCodeVerifier
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import okhttp3.FormBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
 
     private val CLIENT_ID = "7fb1e0a4d10844b596cce58f649d956c"
-    //private val REDIRECT_URI = "http://192.168.0.24:8888/callback"
-   // private val REDIRECT_URI = "http://127.0.0.1:8888/callback"
-    //private val REDIRECT_URI = "http://147.182.224.17:8888/callback"
     private val REDIRECT_URI = "spotifylikedsongsgenresorter://callback"
     private val AUTH_URL = "https://accounts.spotify.com/authorize"
+    private val TOKEN_URL = "https://accounts.spotify.com/api/token"
+
+    // Usamos SharedPreferences para almacenar el codeVerifier
+    private var codeVerifier: String? = null
+
+    // Este valor se actualizará cuando se intercambie el code por token
+    var accessToken: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val sharedPrefs = getSharedPreferences("spotify_prefs", Context.MODE_PRIVATE)
 
-        val data = intent?.data
-        val accessToken = data?.let { uri ->
-            val tokenFromFragment = Uri.parse("?" + uri.fragment).getQueryParameter("access_token")
-            val tokenFromQuery = uri.getQueryParameter("access_token")
-            tokenFromFragment ?: tokenFromQuery
-        }
-
-        // Imprime el token en la consola y Logcat
-        if (accessToken != null) {
-            println("Token recibido: $accessToken")
-            Log.d("MainActivity", "Token recibido: $accessToken")
-        } else {
-            println("No se recibió token")
-            Log.d("MainActivity", "No se recibió token")
+        // Si la Activity es invocada desde el callback, recupera el codeVerifier y el auth code
+        if (intent?.data?.toString()?.startsWith(REDIRECT_URI) == true) {
+            codeVerifier = sharedPrefs.getString("CODE_VERIFIER", null)
+            val authCode = intent?.data?.getQueryParameter("code")
+            if (authCode != null) {
+                exchangeCodeForToken(authCode)
+            } else {
+                Log.e("MainActivity", "No se recibió auth code")
+            }
         }
 
         setContent {
-            if (accessToken != null) {
-                // Ahora llamamos a DataScreen en vez de un simple Text
-                DataScreen(accessToken = accessToken)
+            if (accessToken == null) {
+                LoginScreen(onLoginClick = { openSpotifyLogin() })
             } else {
-                LoginScreen()
-            }
-        }
-    }
-
-
-
-    @Composable
-    fun LoginScreen() {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            Text(
-                text = "Login with Spotify",
-                fontSize = 24.sp,
-                modifier = Modifier.padding(16.dp)
-            )
-            Button(
-                onClick = { openSpotifyLogin() },
-                modifier = Modifier.padding(16.dp)
-            ) {
-                Text(text = "Login")
+                DataScreen(accessToken = accessToken!!)
             }
         }
     }
 
     private fun openSpotifyLogin() {
-        val authIntent = Intent(Intent.ACTION_VIEW, Uri.parse(
-            "$AUTH_URL?client_id=$CLIENT_ID&response_type=token&redirect_uri=$REDIRECT_URI&scope=user-library-read"
-        ))
-        startActivity(authIntent)
+        // Genera el code_verifier y su code_challenge para PKCE
+        val verifier = generateCodeVerifier()
+        codeVerifier = verifier
+        val codeChallenge = generateCodeChallenge(verifier)
+        // Guarda el codeVerifier en SharedPreferences para usarlo en el callback
+        val sharedPrefs = getSharedPreferences("spotify_prefs", Context.MODE_PRIVATE)
+        with(sharedPrefs.edit()) {
+            putString("CODE_VERIFIER", verifier)
+            apply()
+        }
+        // Construye la URL de autenticación usando response_type=code
+        val authUri = Uri.parse(
+            "$AUTH_URL?client_id=$CLIENT_ID" +
+                    "&response_type=code" +
+                    "&redirect_uri=$REDIRECT_URI" +
+                    "&scope=user-library-read%20playlist-modify-public%20playlist-modify-private" +
+                    "&code_challenge_method=S256" +
+                    "&code_challenge=$codeChallenge"
+        )
+        val intent = Intent(Intent.ACTION_VIEW, authUri)
+        startActivity(intent)
     }
 
-    private fun fetchLikedSongsGenres(accessToken: String) {
-        // Llamada asíncrona para no bloquear la UI
-        lifecycleScope.launch {
+    private fun exchangeCodeForToken(authCode: String) {
+        val verifier = codeVerifier
+        if (verifier == null) {
+            Log.e("MainActivity", "codeVerifier es nulo. No se puede intercambiar el code.")
+            return
+        }
+        val client = OkHttpClient()
+        val formBody = FormBody.Builder()
+            .add("grant_type", "authorization_code")
+            .add("code", authCode)
+            .add("redirect_uri", REDIRECT_URI)
+            .add("client_id", CLIENT_ID)
+            .add("code_verifier", verifier)
+            .build()
+
+        val request = Request.Builder()
+            .url(TOKEN_URL)
+            .post(formBody)
+            .build()
+
+        CoroutineScope(Dispatchers.IO).launch {
             try {
-                val response = RetrofitClient.instance.getLikedSongsGenres(accessToken)
-                if (response.isSuccessful) {
-                    val data = response.body() // data es un Map<String, List<Track>>?
-                    // Aquí puedes hacer lo que quieras con los datos, por ejemplo:
-                    println("Data recibida: $data")
-                    // Podrías almacenar esto en una variable global o un ViewModel
+                val response = client.newCall(request).execute()
+                val bodyStr = response.body?.string()
+                if (response.isSuccessful && bodyStr != null) {
+                    val json = JSONObject(bodyStr)
+                    accessToken = json.getString("access_token")
+                    Log.d("MainActivity", "Access Token: $accessToken")
+                    runOnUiThread {
+                        setContent {
+                            DataScreen(accessToken = accessToken!!)
+                        }
+                    }
                 } else {
-                    println("Error: ${response.errorBody()?.string()}")
+                    Log.e("MainActivity", "Error en el intercambio: $bodyStr")
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e("MainActivity", "Excepción en el intercambio: ${e.message}", e)
             }
         }
     }
