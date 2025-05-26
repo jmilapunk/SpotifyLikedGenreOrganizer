@@ -9,7 +9,7 @@ import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
 
-interface PlaylistService {
+interface SpotifyPlaylistService {
     @POST("v1/users/{user_id}/playlists")
     suspend fun crearPlaylist(
         @Path("user_id") userId: String,

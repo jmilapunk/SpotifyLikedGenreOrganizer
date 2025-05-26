@@ -1,6 +1,5 @@
 package com.example.spotifylikedsongsgenresorter.UserInterface
 
-import Track
 import android.util.Log
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -12,10 +11,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.example.spotifylikedsongsgenresorter.api.RetrofitClient
+import com.example.spotifylikedsongsgenresorter.api.RetrofitClientFlask
 import com.example.spotifylikedsongsgenresorter.api.RetrofitClientSpotify
 import com.example.spotifylikedsongsgenresorter.model.PlaylistRequest
 import com.example.spotifylikedsongsgenresorter.model.AddTracksRequest
+import com.example.spotifylikedsongsgenresorter.model.Track
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -32,10 +32,9 @@ fun DataScreen(accessToken: String) {
     // Se obtiene la data desde el backend
     LaunchedEffect(accessToken) {
         try {
-            val response = RetrofitClient.instance.getLikedSongsGenres(accessToken)
+            val response = RetrofitClientFlask.instance.getLikedSongsGenres(accessToken)
             if (response.isSuccessful) {
                 categories = response.body() ?: emptyMap()
-                // Logging para ver qué categorías se reciben
                 categories.forEach { (categoria, tracks) ->
                     Log.d("DataScreen", "$categoria: ${tracks.size} tracks")
                 }
@@ -49,16 +48,13 @@ fun DataScreen(accessToken: String) {
         }
     }
 
-    // Se organiza la UI en dos secciones: botones en la parte superior y lista de tracks abajo
     Column {
         if (isLoading) {
             Text(text = "Cargando...")
         } else if (errorMessage.isNotEmpty()) {
             Text(text = errorMessage)
         } else {
-            // Sección de botones para cada género
             CategoryButtons(accessToken, categories)
-            // Sección de listado de tracks por categoría
             CategoryList(accessToken, categories)
         }
     }
@@ -70,7 +66,6 @@ fun CategoryButtons(accessToken: String, categories: Map<String, List<Track>>) {
         categories.forEach { (genero, tracks) ->
             Button(
                 onClick = {
-                    // Se crea la playlist al pulsar el botón (en una corrutina IO)
                     CoroutineScope(Dispatchers.IO).launch {
                         val userId = obtenerUserId(accessToken)
                         if (userId != null) {
@@ -116,9 +111,6 @@ fun TrackItem(track: Track) {
     }
 }
 
-/**
- * Función para obtener el userId del usuario logueado en Spotify.
- */
 suspend fun obtenerUserId(accessToken: String): String? {
     try {
         val client = OkHttpClient()
@@ -138,9 +130,6 @@ suspend fun obtenerUserId(accessToken: String): String? {
     return null
 }
 
-/**
- * Función para crear la playlist de un género y agregarle las canciones (en bloques de hasta 100).
- */
 suspend fun crearPlaylistPorGenero(
     accessToken: String,
     userId: String,
@@ -164,7 +153,6 @@ suspend fun crearPlaylistPorGenero(
         return false
     }
 
-    // Spotify permite agregar hasta 100 tracks por petición.
     val chunks = trackUris.chunked(100)
     for (chunk in chunks) {
         val addResponse = RetrofitClientSpotify.instance.agregarCanciones(
