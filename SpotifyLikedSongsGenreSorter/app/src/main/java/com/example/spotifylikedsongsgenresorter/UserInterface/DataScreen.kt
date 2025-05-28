@@ -29,15 +29,55 @@ fun DataScreen(accessToken: String) {
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf("") }
 
-    // Se obtiene la data desde el backend
     LaunchedEffect(accessToken) {
         try {
             val response = RetrofitClientFlask.instance.getLikedSongsGenres(accessToken)
             if (response.isSuccessful) {
-                categories = response.body() ?: emptyMap()
-                categories.forEach { (categoria, tracks) ->
+                val body = response.body()
+                val genresMap = body?.genres ?: emptyMap()
+                val totalExpected = body?.total_expected
+                val totalReceived = body?.total_received
+
+                // 1. Guardamos categorías para mostrar en UI
+                categories = genresMap
+
+                // 2. Ejecutamos validación de categorías (tu función ya existente)
+                validarCategorias(genresMap)
+
+                // 3. Logs de control
+                Log.d("DataScreen", "DEBUG: totalExpected=$totalExpected, totalReceived=$totalReceived")
+                if (totalExpected != null && totalReceived != null) {
+                    if (totalExpected == 0) {
+                        Log.i("DataScreen", "ℹ️ El usuario no tiene canciones liked.")
+                    } else if (totalReceived < totalExpected) {
+                        Log.w("DataScreen", "⚠️ Se perdieron canciones: $totalReceived de $totalExpected")
+                    } else {
+                        Log.d("DataScreen", "✅ Todas las canciones recibidas correctamente.")
+                    }
+                } else {
+                    Log.e("DataScreen", "❌ total_expected o total_received no son válidos.")
+                }
+
+                genresMap.forEach { (categoria, tracks) ->
                     Log.d("DataScreen", "$categoria: ${tracks.size} tracks")
                 }
+
+                // ✅ Validación CRUCIAL: ¿Todas las canciones se clasificaron?
+                val trackIdsClasificados = genresMap.values
+                    .flatten()
+                    .mapNotNull { it.track_id }
+                    .toSet()
+
+                Log.d("ValidaciónCrucial", "🎧 Tracks únicos clasificados: ${trackIdsClasificados.size}")
+                Log.d("ValidaciónCrucial", "🎯 Total canciones reales recibidas: $totalReceived")
+
+                if (trackIdsClasificados.size == totalReceived) {
+                    Log.d("ValidaciónCrucial", "✅ Todas las canciones fueron clasificadas al menos en una categoría")
+                } else {
+                    val sinClasificar = (totalReceived ?: 0) - trackIdsClasificados.size
+                    Log.w("ValidaciónCrucial", "⚠️ $sinClasificar canciones no se clasificaron en ningún género")
+                }
+
             } else {
                 errorMessage = "Error: ${response.errorBody()?.string()}"
             }
@@ -58,6 +98,51 @@ fun DataScreen(accessToken: String) {
             CategoryList(accessToken, categories)
         }
     }
+}
+
+fun validarCategorias(genresMap: Map<String, List<Track>>) {
+    val broadCategories = mapOf(
+        "Rock" to listOf("rock", "garage", "latin rock", "rock urbano", "rock en español", "hard rock", "classic rock", "psychedelic rock", "grunge"),
+        "Pop" to listOf("pop", "pop latino", "latin pop", "synthpop", "pop rock", "teen pop", "indie pop", "electropop"),
+        "Punk" to listOf("punk", "ska punk", "hardcore punk", "skate punk", "punk rock", "melodic hardcore", "punk rap"),
+        "Hip Hop / Rap" to listOf("rap", "hip hop", "trap", "latin hip hop", "cloud rap", "emo rap", "boom bap", "underground hip hop", "drill"),
+        "Indie / Alternativo" to listOf("indie", "indie rock", "indie folk", "mexican indie", "latin indie", "alternative", "alt-rock", "lo-fi", "bedroom pop"),
+        "Metal" to listOf("metal", "death metal", "metalcore", "thrash metal", "heavy metal", "black metal", "doom metal"),
+        "Electronic" to listOf("edm", "electronic", "house", "techno", "dubstep", "synthwave", "electro", "future bass", "trance", "drum and bass"),
+        "R&B / Soul" to listOf("r&b", "soul", "neo soul", "funk", "contemporary r&b", "motown", "quiet storm"),
+        "Reggaetón / Urbano" to listOf("reggaeton", "latin trap", "urbano latino", "dembow", "trap latino", "reggaeton mexa"),
+        "Corridos / Regional Mexicano" to listOf("corrido", "corridos tumbados", "corridos bélicos", "norteño", "mariachi", "banda", "grupera"),
+        "Folk / World / Tradicional" to listOf("bolero", "folk", "latin folk", "flamenco", "música andina", "cumbia", "vallenato", "chicha", "world"),
+        "Otros / Desconocido" to listOf()
+    )
+
+    val allTracks = genresMap.values.flatten()
+    val errores = mutableListOf<String>()
+
+    for (track in allTracks) {
+        val categoriasEsperadas = mutableSetOf<String>()
+
+        for (g in track.genres) {
+            for ((categoria, keywords) in broadCategories) {
+                if (keywords.any { kw -> g.lowercase().contains(kw.lowercase()) }) {
+                    categoriasEsperadas.add(categoria)
+                }
+            }
+        }
+
+        val categoriasAsignadas = genresMap.filterValues { list -> list.any { it.track_id == track.track_id } }.keys.toSet()
+        val faltantes = categoriasEsperadas - categoriasAsignadas
+
+        if (faltantes.isNotEmpty()) {
+            errores.add("❌ '${track.track_name}' debería estar en $categoriasEsperadas, pero está en $categoriasAsignadas")
+        }
+    }
+
+    val totalVerificadosUnicos = allTracks.mapNotNull { it.track_id }.toSet().size
+    Log.d("ValidaciónCrucial", "✅ Tracks verificados (apariciones totales): ${allTracks.size}")
+    Log.d("ValidaciónCrucial", "🎧 Tracks verificados (únicos): $totalVerificadosUnicos")
+    Log.d("ValidaciónCrucial", "⚠️ Tracks mal clasificados: ${errores.size}")
+    errores.take(10).forEach { Log.d("ValidaciónCrucial", it) }
 }
 
 @Composable
@@ -134,9 +219,11 @@ suspend fun crearPlaylistPorGenero(
     accessToken: String,
     userId: String,
     genero: String,
-    trackUris: List<String>
+    trackUris: List<String> // Solo necesitamos los URIs aquí
 ): Boolean {
     val authHeader = "Bearer $accessToken"
+
+    // 🧱 Paso 1: Crear la playlist en Spotify
     val playlistRequest = PlaylistRequest(
         name = "Playlist de $genero",
         description = "Playlist automática para el género $genero",
@@ -144,15 +231,17 @@ suspend fun crearPlaylistPorGenero(
     )
     val playlistResponse = RetrofitClientSpotify.instance.crearPlaylist(userId, authHeader, playlistRequest)
     if (!playlistResponse.isSuccessful) {
-        Log.e("crearPlaylistPorGenero", "Error creando playlist: ${playlistResponse.errorBody()?.string()}")
-        return false
-    }
-    val playlistId = playlistResponse.body()?.id
-    if (playlistId == null) {
-        Log.e("crearPlaylistPorGenero", "Playlist creada, pero no se obtuvo el ID")
+        Log.e("crearPlaylistPorGenero", "❌ Error creando playlist: ${playlistResponse.errorBody()?.string()}")
         return false
     }
 
+    val playlistId = playlistResponse.body()?.id
+    if (playlistId == null) {
+        Log.e("crearPlaylistPorGenero", "❌ Playlist creada, pero no se obtuvo el ID")
+        return false
+    }
+
+    // 🎵 Paso 2: Agregar canciones en bloques de 100 URIs
     val chunks = trackUris.chunked(100)
     for (chunk in chunks) {
         val addResponse = RetrofitClientSpotify.instance.agregarCanciones(
@@ -161,9 +250,26 @@ suspend fun crearPlaylistPorGenero(
             AddTracksRequest(chunk)
         )
         if (!addResponse.isSuccessful) {
-            Log.e("crearPlaylistPorGenero", "Error agregando canciones: ${addResponse.errorBody()?.string()}")
+            Log.e("crearPlaylistPorGenero", "❌ Error agregando canciones: ${addResponse.errorBody()?.string()}")
             return false
         }
     }
+
+    // ✅ Paso 3: Verificar cuántas canciones quedaron realmente en la playlist
+    val verifyResponse = RetrofitClientSpotify.instance.getPlaylistTracks(playlistId, authHeader)
+    if (verifyResponse.isSuccessful) {
+        val totalEnSpotify = verifyResponse.body()?.total ?: -1
+        val totalEsperado = trackUris.size
+
+        if (totalEnSpotify == totalEsperado) {
+            Log.d("crearPlaylistPorGenero", "✅ Playlist '$genero' completa: $totalEnSpotify canciones.")
+        } else {
+            Log.w("crearPlaylistPorGenero", "⚠️ Playlist '$genero' incompleta: $totalEnSpotify de $totalEsperado canciones.")
+        }
+    } else {
+        Log.e("crearPlaylistPorGenero", "❌ No se pudo verificar la playlist: ${verifyResponse.errorBody()?.string()}")
+    }
+
     return true
 }
+
