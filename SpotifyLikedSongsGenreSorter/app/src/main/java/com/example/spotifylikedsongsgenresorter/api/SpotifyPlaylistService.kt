@@ -31,4 +31,12 @@ interface SpotifyPlaylistService {
         @Path("playlist_id") playlistId: String,
         @Header("Authorization") authHeader: String
     ): Response<PlaylistTracksResponse>
+
+    @GET("v1/playlists/{playlist_id}/tracks")
+    suspend fun getPlaylistTracksPaged(
+        @Path("playlist_id") playlistId: String,
+        @Header("Authorization") authHeader: String,
+        @Query("limit") limit: Int = 100,
+        @Query("offset") offset: Int = 0
+    ): Response<PlaylistTracksResponse>
 }

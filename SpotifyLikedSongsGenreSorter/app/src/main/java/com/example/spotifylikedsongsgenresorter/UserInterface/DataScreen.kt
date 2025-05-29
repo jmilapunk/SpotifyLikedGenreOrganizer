@@ -15,6 +15,7 @@ import com.example.spotifylikedsongsgenresorter.api.RetrofitClientFlask
 import com.example.spotifylikedsongsgenresorter.api.RetrofitClientSpotify
 import com.example.spotifylikedsongsgenresorter.model.PlaylistRequest
 import com.example.spotifylikedsongsgenresorter.model.AddTracksRequest
+import com.example.spotifylikedsongsgenresorter.model.PlaylistTrackItem
 import com.example.spotifylikedsongsgenresorter.model.Track
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -155,7 +156,7 @@ fun CategoryButtons(accessToken: String, categories: Map<String, List<Track>>) {
                         val userId = obtenerUserId(accessToken)
                         if (userId != null) {
                             val trackUris = tracks.map { "spotify:track:${it.track_id}" }
-                            val exito = crearPlaylistPorGenero(accessToken, userId, genero, trackUris)
+                            val exito = crearPlaylistPorGenero(accessToken, userId, genero, tracks)
                             Log.d("CategoryButtons", "Playlist para $genero creada: $exito")
                         } else {
                             Log.e("CategoryButtons", "No se pudo obtener el userId")
@@ -219,11 +220,12 @@ suspend fun crearPlaylistPorGenero(
     accessToken: String,
     userId: String,
     genero: String,
-    trackUris: List<String> // Solo necesitamos los URIs aquí
+    tracks: List<Track>  // ⬅️ Cambiamos de List<String> (URIs) a List<Track>
 ): Boolean {
     val authHeader = "Bearer $accessToken"
+    val trackUris = tracks.map { "spotify:track:${it.track_id}" }
 
-    // 🧱 Paso 1: Crear la playlist en Spotify
+    // 🧱 Paso 1: Crear la playlist
     val playlistRequest = PlaylistRequest(
         name = "Playlist de $genero",
         description = "Playlist automática para el género $genero",
@@ -241,7 +243,7 @@ suspend fun crearPlaylistPorGenero(
         return false
     }
 
-    // 🎵 Paso 2: Agregar canciones en bloques de 100 URIs
+    // 🎵 Paso 2: Agregar canciones en bloques de 100
     val chunks = trackUris.chunked(100)
     for (chunk in chunks) {
         val addResponse = RetrofitClientSpotify.instance.agregarCanciones(
@@ -255,21 +257,83 @@ suspend fun crearPlaylistPorGenero(
         }
     }
 
-    // ✅ Paso 3: Verificar cuántas canciones quedaron realmente en la playlist
+    // ✅ Paso 3a: Validación por cantidad
     val verifyResponse = RetrofitClientSpotify.instance.getPlaylistTracks(playlistId, authHeader)
-    if (verifyResponse.isSuccessful) {
-        val totalEnSpotify = verifyResponse.body()?.total ?: -1
-        val totalEsperado = trackUris.size
-
-        if (totalEnSpotify == totalEsperado) {
-            Log.d("crearPlaylistPorGenero", "✅ Playlist '$genero' completa: $totalEnSpotify canciones.")
-        } else {
-            Log.w("crearPlaylistPorGenero", "⚠️ Playlist '$genero' incompleta: $totalEnSpotify de $totalEsperado canciones.")
-        }
-    } else {
+    if (!verifyResponse.isSuccessful) {
         Log.e("crearPlaylistPorGenero", "❌ No se pudo verificar la playlist: ${verifyResponse.errorBody()?.string()}")
+        return false
+    }
+
+    val responseBody = verifyResponse.body()
+    val totalEnSpotify = responseBody?.total ?: -1
+    val totalEsperado = trackUris.size
+
+    if (totalEnSpotify == totalEsperado) {
+        Log.d("crearPlaylistPorGenero", "✅ Playlist '$genero' completa: $totalEnSpotify canciones.")
+    } else {
+        Log.w("crearPlaylistPorGenero", "⚠️ Playlist '$genero' incompleta: $totalEnSpotify de $totalEsperado canciones.")
+    }
+
+    // ✅ Paso 3b: Validación por nombre + artista
+    val items = obtenerTodasLasCancionesPlaylist(playlistId, authHeader)
+
+    if (items != null) {
+        val spotifyTracks = items.map {
+            val name = it.track.name
+            val artists = it.track.artists.joinToString(", ") { artist -> artist.name }
+            "$name - $artists"
+        }
+
+        val esperadas = tracks.map {
+            "${it.track_name} - ${it.artist_names.joinToString(", ")}"
+        }
+
+        val faltantes = esperadas.toSet() - spotifyTracks.toSet()
+        val extras = spotifyTracks.toSet() - esperadas.toSet()
+
+        Log.d("crearPlaylistPorGenero", "🎯 Validación detallada: Esperadas=${esperadas.size}, En Spotify=${spotifyTracks.size}")
+        faltantes.take(5).forEach { Log.w("crearPlaylistPorGenero", "❌ Faltante en Spotify: $it") }
+        extras.take(5).forEach { Log.w("crearPlaylistPorGenero", "⚠️ Extra no esperada en Spotify: $it") }
+
+        if (faltantes.isEmpty() && extras.isEmpty()) {
+            Log.d("crearPlaylistPorGenero", "✅ Todas las canciones coinciden perfectamente (nombre + artistas).")
+            esperadas.forEach {
+                Log.d("crearPlaylistPorGenero", "✅ Confirmado en Spotify: $it")
+            }
+        }
     }
 
     return true
 }
+
+suspend fun obtenerTodasLasCancionesPlaylist(
+    playlistId: String,
+    authHeader: String
+): List<PlaylistTrackItem> {
+    val allItems = mutableListOf<PlaylistTrackItem>()
+    var offset = 0
+    val limit = 100
+
+    while (true) {
+        val response = RetrofitClientSpotify.instance.getPlaylistTracksPaged(
+            playlistId,
+            authHeader,
+            limit,
+            offset
+        )
+
+        if (!response.isSuccessful) break
+
+        val items = response.body()?.items ?: break
+        allItems.addAll(items)
+
+        if (items.size < limit) break
+        offset += limit
+    }
+
+    return allItems
+}
+
+
+
 
