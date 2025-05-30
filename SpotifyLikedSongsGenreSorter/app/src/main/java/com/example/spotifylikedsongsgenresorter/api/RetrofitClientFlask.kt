@@ -9,10 +9,11 @@ object RetrofitClientFlask {
     private const val BASE_URL = "https://likedgenresorter.com" // o tu backend real
 
     val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS)   // antes 30
-        .readTimeout(120, TimeUnit.SECONDS)     // antes 60
-        .writeTimeout(120, TimeUnit.SECONDS)    // antes 60
+        .connectTimeout(600, TimeUnit.SECONDS)
+        .readTimeout(600, TimeUnit.SECONDS)
+        .writeTimeout(600, TimeUnit.SECONDS)
         .build()
+
 
     val instance: FlaskLikedSongsService by lazy {
         Retrofit.Builder()
