@@ -9,7 +9,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.spotifylikedsongsgenresorter"
+        applicationId = "com.milacode.genrify"
         minSdk = 24
         targetSdk = 35
         versionCode = 1
@@ -18,15 +18,26 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file(rootProject.file(properties["MYAPP_RELEASE_STORE_FILE"] as String))
+            storePassword = properties["MYAPP_RELEASE_STORE_PASSWORD"] as String
+            keyAlias = properties["MYAPP_RELEASE_KEY_ALIAS"] as String
+            keyPassword = properties["MYAPP_RELEASE_KEY_PASSWORD"] as String
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release") // 🔐 Línea clave agregada
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -71,5 +82,4 @@ dependencies {
     implementation(files("libs/spotify-app-remote-release-0.8.0.aar"))
 
     implementation("com.squareup.okhttp3:okhttp:4.9.3")
-
 }
