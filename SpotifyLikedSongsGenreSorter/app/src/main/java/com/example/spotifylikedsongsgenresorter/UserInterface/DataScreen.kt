@@ -1,16 +1,21 @@
 package com.example.spotifylikedsongsgenresorter.UserInterface
 
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.example.spotifylikedsongsgenresorter.R
 import com.example.spotifylikedsongsgenresorter.api.RetrofitClientFlask
 import com.example.spotifylikedsongsgenresorter.api.RetrofitClientSpotify
 import com.example.spotifylikedsongsgenresorter.model.PlaylistRequest
@@ -20,6 +25,7 @@ import com.example.spotifylikedsongsgenresorter.model.Track
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -91,12 +97,18 @@ fun DataScreen(accessToken: String) {
 
     Column {
         if (isLoading) {
-            Text(text = "Cargando...")
+            Column(modifier = Modifier.padding(16.dp)) {
+                CircularProgressIndicator()
+                Text(
+                    text = stringResource(id = R.string.loading_liked_songs),
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
         } else if (errorMessage.isNotEmpty()) {
             Text(text = errorMessage)
         } else {
             CategoryButtons(accessToken, categories)
-            CategoryList(accessToken, categories)
+            //CategoryList(accessToken, categories)
         }
     }
 }
@@ -148,24 +160,46 @@ fun validarCategorias(genresMap: Map<String, List<Track>>) {
 
 @Composable
 fun CategoryButtons(accessToken: String, categories: Map<String, List<Track>>) {
+    val context = LocalContext.current
+    val loadingMap = remember { mutableStateMapOf<String, Boolean>() }
+
     Column {
         categories.forEach { (genero, tracks) ->
-            Button(
-                onClick = {
-                    CoroutineScope(Dispatchers.IO).launch {
-                        val userId = obtenerUserId(accessToken)
-                        if (userId != null) {
-                            val trackUris = tracks.map { "spotify:track:${it.track_id}" }
-                            val exito = crearPlaylistPorGenero(accessToken, userId, genero, tracks)
-                            Log.d("CategoryButtons", "Playlist para $genero creada: $exito")
-                        } else {
-                            Log.e("CategoryButtons", "No se pudo obtener el userId")
+            val isLoading = loadingMap[genero] ?: false
+
+            if (isLoading) {
+                Column(modifier = Modifier.padding(8.dp)) {
+                    CircularProgressIndicator()
+                    Text(
+                        text = stringResource(id = R.string.creating_playlist, genero),
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            } else {
+                Button(
+                    onClick = {
+                        loadingMap[genero] = true
+                        CoroutineScope(Dispatchers.IO).launch {
+                            val userId = obtenerUserId(accessToken)
+                            val exito = if (userId != null) {
+                                crearPlaylistPorGenero(accessToken, userId, genero, tracks)
+                            } else false
+
+                            withContext(Dispatchers.Main) {
+                                loadingMap[genero] = false
+                                val mensaje = if (exito) {
+                                    context.getString(R.string.playlist_created, genero)
+                                } else {
+                                    context.getString(R.string.playlist_failed, genero)
+                                }
+                                Toast.makeText(context, mensaje, Toast.LENGTH_LONG).show()
+                            }
                         }
-                    }
-                },
-                modifier = Modifier.padding(8.dp)
-            ) {
-                Text(text = "Crear Playlist para $genero")
+                    },
+                    modifier = Modifier.padding(8.dp)
+                ) {
+                    Text(text = stringResource(id = R.string.create_playlist, genero))
+                }
             }
         }
     }

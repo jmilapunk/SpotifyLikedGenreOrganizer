@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">Genrify</string>
+    <string name="login_with_spotify">Iniciar sesión con Spotify</string>
+    <string name="login">Iniciar sesión</string>
+    <string name="loading">Cargando...</string>
+    <string name="error_prefix">Error:</string>
+    <string name="create_playlist">Crear Playlist para %1$s</string>
+    <string name="playlist_created">Playlist para %1$s creada correctamente</string>
+    <string name="playlist_failed">No se pudo crear la playlist para %1$s</string>
+    <string name="creating_playlist">Creando playlist para %1$s...</string>
+    <string name="login_title">Iniciar sesión con Spotify</string>
+    <string name="login_button">Iniciar sesión</string>
+    <string name="loading_liked_songs">Cargando canciones favoritas...</string>
+
+</resources>

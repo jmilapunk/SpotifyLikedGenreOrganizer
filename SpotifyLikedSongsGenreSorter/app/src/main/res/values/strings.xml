@@ -1,3 +1,15 @@
 <resources>
-    <string name="app_name">SpotifyLikedSongsGenreSorter</string>
+    <string name="app_name">Genrify</string>
+    <string name="login_with_spotify">Login with Spotify</string>
+    <string name="login">Login</string>
+    <string name="loading">Loading...</string>
+    <string name="error_prefix">Error:</string>
+    <string name="create_playlist">Create Playlist for %1$s</string>
+    <string name="playlist_created">Playlist for %1$s created successfully</string>
+    <string name="playlist_failed">Failed to create playlist for %1$s</string>
+    <string name="creating_playlist">Creating playlist for %1$s...</string>
+    <string name="login_title">Login with Spotify</string>
+    <string name="login_button">Login</string>
+    <string name="loading_liked_songs">Cargando canciones favoritas...</string>
+
 </resources>
